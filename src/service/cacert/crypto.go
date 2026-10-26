@@ -23,6 +23,41 @@ import (
 	"time"
 )
 
+// minECScalarBits 私钥标量最小位数，防 eMudhra 类极小私钥（d=4/56/66）
+const minECScalarBits = 128
+
+// checkECDSAScalar 校验 ECDSA 私钥标量：
+//  1. 数学合法性：1 <= d < n（Go 生成时已保证，导入时防御性再查）
+//  2. 小标量检查：d.BitLen() >= minBits（库不做，防 eMudhra 类漏洞）
+//  3. 曲线必须是命名曲线 P-256/P-384/P-521，拒绝自定义弱曲线
+func checkECDSAScalar(priv *ecdsa.PrivateKey, minBits int) error {
+	if priv == nil || priv.D == nil || priv.Curve == nil {
+		return errors.New("invalid ECDSA private key")
+	}
+
+	// 曲线白名单：只接受命名曲线
+	switch priv.Curve {
+	case elliptic.P256(), elliptic.P384(), elliptic.P521():
+		// ok
+	default:
+		return fmt.Errorf("unsupported/non-standard ECDSA curve: %s", priv.Curve.Params().Name)
+	}
+
+	n := priv.Curve.Params().N
+	d := priv.D
+
+	// 1. 数学合法性
+	if d.Sign() <= 0 || d.Cmp(n) >= 0 {
+		return fmt.Errorf("ECDSA private scalar out of range [1, n-1]")
+	}
+
+	// 2. 小标量检查
+	if d.BitLen() < minBits {
+		return fmt.Errorf("ECDSA private scalar too small: bitlen=%d < %d", d.BitLen(), minBits)
+	}
+	return nil
+}
+
 // ---------- 私钥 ----------
 
 func createKey(algo string, size int) (crypto.Signer, error) {
@@ -44,7 +79,14 @@ func createKey(algo string, size int) (crypto.Signer, error) {
 		default:
 			return nil, fmt.Errorf("unsupported ECDSA size: %d", size)
 		}
-		return ecdsa.GenerateKey(curve, rand.Reader)
+		priv, err := ecdsa.GenerateKey(curve, rand.Reader)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkECDSAScalar(priv, minECScalarBits); err != nil {
+			return nil, fmt.Errorf("generated ECDSA key rejected: %w", err)
+		}
+		return priv, nil
 	case "ed25519":
 		_, priv, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
@@ -543,6 +585,12 @@ func parsePKCS8Key(pemStr string) (crypto.Signer, error) {
 	signer, ok := key.(crypto.Signer)
 	if !ok {
 		return nil, fmt.Errorf("not a signer: %T", key)
+	}
+
+	if ec, ok := signer.(*ecdsa.PrivateKey); ok {
+		if err := checkECDSAScalar(ec, minECScalarBits); err != nil {
+			return nil, fmt.Errorf("imported ECDSA key rejected: %w", err)
+		}
 	}
 	return signer, nil
 }

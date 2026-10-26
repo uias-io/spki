@@ -79,6 +79,13 @@ func renewCert(dao *models.DB, certID string, expiry Expiry, isCA, selfSign bool
 		return 0, ErrInternal(answer.EcodeError, "decrypt old key failed", err)
 	}
 
+	// 3.1 续签复用旧私钥：防历史导入的弱私钥被继续沿用
+	if ec, ok := signer.(*ecdsa.PrivateKey); ok {
+		if err := checkECDSAScalar(ec, minECScalarBits); err != nil {
+			return 0, ErrBadRequest(answer.EcodeInvalidKeyPEM, "old private key rejected", err)
+		}
+	}
+
 	// 4. 解析旧证书，还原配置
 	oldCert, err := parseCertPEM(*oldVer.Cert)
 	if err != nil {
