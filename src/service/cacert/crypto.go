@@ -155,12 +155,6 @@ func validateConfig(cfg *CertConfig) error {
 	if cfg.Names.CN == "" {
 		return errors.New("names.CN is required")
 	}
-	if cfg.Names.O == "" {
-		return errors.New("names.O is required")
-	}
-	if cfg.Names.OU == "" {
-		return errors.New("names.OU is required")
-	}
 	if cfg.Expiry.String() == "" {
 		return fmt.Errorf("expiry is required")
 	}
