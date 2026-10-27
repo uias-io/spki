@@ -193,10 +193,10 @@ func buildRenewConfig(cert *models.Certificate, oldCert *x509.Certificate, expir
 	cfg.Key = inferKeySpec(oldCert)
 
 	if len(oldCert.Subject.Organization) > 0 {
-		cfg.Names.O = oldCert.Subject.Organization[0]
+		cfg.Names.O = &oldCert.Subject.Organization[0]
 	}
 	if len(oldCert.Subject.OrganizationalUnit) > 0 {
-		cfg.Names.OU = oldCert.Subject.OrganizationalUnit[0]
+		cfg.Names.OU = &oldCert.Subject.OrganizationalUnit[0]
 	}
 	if len(oldCert.Subject.Country) > 0 {
 		cfg.Names.C = &oldCert.Subject.Country[0]

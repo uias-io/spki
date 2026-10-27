@@ -189,10 +189,7 @@ func validateConfig(cfg *CertConfig) error {
 
 func parseKeyUsage(list []string, isCA bool) (x509.KeyUsage, error) {
 	if len(list) == 0 {
-		if isCA {
-			return x509.KeyUsageCertSign | x509.KeyUsageCRLSign, nil
-		}
-		return x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment, nil
+		return 0, nil
 	}
 	var ku x509.KeyUsage
 	for _, s := range list {
@@ -220,7 +217,7 @@ func parseKeyUsage(list []string, isCA bool) (x509.KeyUsage, error) {
 		}
 	}
 
-	// CA必须包含keyCertSign
+	// CA 证书必须包含 keyCertSign（显式传了 keyUsage 时校验）
 	if isCA {
 		if (ku & x509.KeyUsageCertSign) == 0 {
 			return 0, fmt.Errorf("CA certificate keyUsage must contain keyCertSign")
@@ -256,9 +253,13 @@ func parseExtKeyUsage(list []string) ([]x509.ExtKeyUsage, error) {
 
 func buildSubject(n Names) pkix.Name {
 	subject := pkix.Name{
-		CommonName:         n.CN,
-		Organization:       []string{n.O},
-		OrganizationalUnit: []string{n.OU},
+		CommonName: n.CN,
+	}
+	if n.O != nil && *n.O != "" {
+		subject.Organization = []string{*n.O}
+	}
+	if n.OU != nil && *n.OU != "" {
+		subject.OrganizationalUnit = []string{*n.OU}
 	}
 	if n.C != nil && *n.C != "" {
 		subject.Country = []string{*n.C}
@@ -357,7 +358,6 @@ func signCert(subjectKey any, parentCert *x509.Certificate, parentSigner crypto.
 		Subject:               subject,
 		NotBefore:             now,
 		NotAfter:              cfg.Expiry.NotAfter(now),
-		KeyUsage:              ku,
 		ExtKeyUsage:           eku,
 		BasicConstraintsValid: true,
 		IsCA:                  isCA,
@@ -369,6 +369,10 @@ func signCert(subjectKey any, parentCert *x509.Certificate, parentSigner crypto.
 		OCSPServer:            cfg.OCSPServer,
 		IssuingCertificateURL: cfg.IssuingCertificateURL,
 		URIs:                  uris,
+	}
+
+	if ku != 0 {
+		tpl.KeyUsage = ku
 	}
 
 	if isCA {

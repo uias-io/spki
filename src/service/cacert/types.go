@@ -21,8 +21,8 @@ type Names struct {
 	C  *string `json:"C,omitempty"`
 	L  *string `json:"L,omitempty"`
 	ST *string `json:"ST,omitempty"`
-	O  string  `json:"O"`
-	OU string  `json:"OU"`
+	O  *string `json:"O,omitempty"`
+	OU *string `json:"OU,omitempty"`
 }
 
 type AltNames struct {
