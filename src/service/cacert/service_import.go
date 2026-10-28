@@ -141,6 +141,7 @@ func ImportCASvc(dao *models.DB, req *ImportCAReq) (*ImportCAResp, error) {
 		Pathlev:  pathlev,
 		Genre:    genre,
 		HasKey:   hasKeyInt8,
+		IssueCfg: "{}",
 	}
 
 	var keyRec *models.PrivateKey

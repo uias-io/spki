@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -645,5 +646,18 @@ func ReadOCSPRequest(r io.Reader) ([]byte, error) {
 	return body, nil
 }
 
-// bigIntPtr 小工具
-func bigIntPtr(n *big.Int) *big.Int { return n }
+// marshalConfig 序列化 CertConfig，供 version.issuecfg 持久化。
+func marshalConfig(cfg *CertConfig) (string, error) {
+	if cfg == nil {
+		return "", errors.New("marshalConfig: config is nil")
+	}
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		return "", err
+	}
+	s := string(b)
+	if s == "" || s == "{}" || s == "null" {
+		return "", errors.New("marshalConfig: empty config")
+	}
+	return s, nil
+}

@@ -2,6 +2,7 @@ package models
 
 import (
 	"errors"
+
 	"gorm.io/gorm"
 )
 
@@ -15,6 +16,7 @@ type Certificate struct {
 	Pathlev    int     `gorm:"column:pathlev"`
 	Genre      int     `gorm:"column:genre"`
 	HasKey     int8    `gorm:"column:has_key"`
+	IssueCfg   string  `gorm:"column:issuecfg;not null"`
 	CertReq    *string `gorm:"column:cert_req"`
 }
 

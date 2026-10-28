@@ -21,6 +21,7 @@ CREATE TABLE `pki_certificate`  (
   `pathlev` tinyint(4) NOT NULL COMMENT '证书层级，ca:0、中间证书：1、服务证书2',
   `genre` tinyint(4) NOT NULL COMMENT '证书类型，根ca:1,中间ca2，服务证书3',
   `has_key` tinyint(1) NOT NULL COMMENT '是否有私钥 1有 0无',
+  `issuecfg` json NOT NULL COMMENT '签发配置快照',
   `cert_req` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL COMMENT '证书请求文件',
   PRIMARY KEY (`kid`) USING BTREE,
   UNIQUE INDEX `uk_certid`(`certid`) USING BTREE,
@@ -47,7 +48,7 @@ CREATE TABLE `pki_instance`  (
   UNIQUE INDEX `uk_instance_id`(`instance_id`) USING BTREE,
   INDEX `idx_domain_id`(`domain_id`) USING BTREE,
   INDEX `idx_cbc_status`(`cbc_status`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 1000 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 1000 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Table structure for pki_private_key
@@ -84,7 +85,7 @@ CREATE TABLE `pki_version`  (
   `effective_time` bigint(20) NULL DEFAULT NULL COMMENT '生效时间戳（毫秒）',
   `expiration_time` bigint(20) NULL DEFAULT NULL COMMENT '到期时间戳（毫秒）',
   `revocation_time` bigint(20) NULL DEFAULT NULL COMMENT '吊销时间戳（毫秒）',
-  `revocation_code` tinyint(4) DEFAULT NULL COMMENT '吊销原因码，RFC 5280 CRLReason，仅 state=R 时有值',
+  `revocation_code` tinyint(4) NULL DEFAULT NULL COMMENT '吊销原因码，RFC 5280 CRLReason，仅 state=R 时有值',
   `state` char(1) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'V' COMMENT 'V有效 R吊销 E过期',
   PRIMARY KEY (`kid`) USING BTREE,
   UNIQUE INDEX `uk_cert_fingerprint`(`fingerprint`) USING BTREE,

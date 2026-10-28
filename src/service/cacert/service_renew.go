@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"spki/src/models"
 	"spki/src/pkg/answer"
 )
@@ -91,7 +92,11 @@ func renewCert(dao *models.DB, certID string, expiry Expiry, isCA, selfSign bool
 	if err != nil {
 		return 0, ErrInternal(answer.EcodeError, "parse old cert failed", err)
 	}
-	cfg := buildRenewConfig(cert, oldCert, expiry, isCA)
+
+	cfg, err := buildRenewConfigFromCertificate(cert, oldCert, expiry, isCA)
+	if err != nil {
+		return 0, ErrInternal(answer.EcodeError, "build renew config failed", err)
+	}
 
 	// 5. 取签发者
 	var parentCert *x509.Certificate
@@ -179,19 +184,90 @@ func renewCert(dao *models.DB, certID string, expiry Expiry, isCA, selfSign bool
 	return rev, nil
 }
 
+func signatureAlgorithmToString(alg x509.SignatureAlgorithm) string {
+	switch alg {
+	// RSA PKCS#1 v1.5
+	case x509.SHA256WithRSA:
+		return "sha256"
+	case x509.SHA384WithRSA:
+		return "sha384"
+	case x509.SHA512WithRSA:
+		return "sha512"
+	// RSA-PSS
+	case x509.SHA256WithRSAPSS:
+		return "sha256pss"
+	case x509.SHA384WithRSAPSS:
+		return "sha384pss"
+	case x509.SHA512WithRSAPSS:
+		return "sha512pss"
+	// ECDSA
+	case x509.ECDSAWithSHA256:
+		return "sha256"
+	case x509.ECDSAWithSHA384:
+		return "sha384"
+	case x509.ECDSAWithSHA512:
+		return "sha512"
+	// Ed25519
+	case x509.PureEd25519:
+		return "ed25519"
+	default:
+		// 未知/未映射（如 SHA1WithRSA）返回空，走自动选择
+		return ""
+	}
+}
+
+func buildRenewConfigFromCertificate(cert *models.Certificate, oldCert *x509.Certificate, expiry Expiry, isCA bool) (*CertConfig, error) {
+	if cert.IssueCfg == "" || cert.IssueCfg == "{}" || cert.IssueCfg == "null" {
+		return buildRenewConfig(cert, oldCert, expiry, isCA), nil
+	}
+	var cfg CertConfig
+	if err := json.Unmarshal([]byte(cert.IssueCfg), &cfg); err != nil {
+		return buildRenewConfig(cert, oldCert, expiry, isCA), nil
+	}
+	if cfg.Names.CN == "" || cfg.Key.Algo == "" {
+		return buildRenewConfig(cert, oldCert, expiry, isCA), nil
+	}
+	cfg.Expiry = expiry
+	cfg.Title = cert.Title
+	cfg.CSRPem = ""
+	cfg.Key = inferKeySpec(oldCert)
+	return &cfg, nil
+}
+
 // buildRenewConfig 从旧证书还原续期配置
 func buildRenewConfig(cert *models.Certificate, oldCert *x509.Certificate, expiry Expiry, isCA bool) *CertConfig {
 	cfg := &CertConfig{
-		Title:                cert.Title,
-		Expiry:               expiry,
-		SubjectKeyIdentifier: "sha256",
+		Title:  cert.Title,
+		Expiry: expiry,
 		Names: Names{
 			CN: oldCert.Subject.CommonName,
 		},
+		// ---- AIA / CRL DP：之前遗漏，必须还原，否则续签丢扩展 ----
+		CRLDistributionPoints: append([]string(nil), oldCert.CRLDistributionPoints...),
+		OCSPServer:            append([]string(nil), oldCert.OCSPServer...),
+		IssuingCertificateURL: append([]string(nil), oldCert.IssuingCertificateURL...),
 	}
 
+	// ---- SKI 算法：按旧证书 SKI 长度推断，保持续签前后 SKI 稳定 ----
+	// SHA-1 输出 20 字节，SHA-256 输出 32 字节。
+	// 若原证书 SKI 为空或长度异常，退回 sha256（与旧行为一致）。
+	switch len(oldCert.SubjectKeyId) {
+	case 20:
+		cfg.SubjectKeyIdentifier = "sha1"
+	case 32:
+		cfg.SubjectKeyIdentifier = "sha256"
+	default:
+		cfg.SubjectKeyIdentifier = "sha256"
+	}
+
+	// ---- 签名算法：沿用旧证书实际算法，避免续签降级/变更 ----
+	// 返回空串时 chooseSignatureAlgorithm 会按签名者类型自动选择。
+	cfg.SignatureAlgorithm = signatureAlgorithmToString(oldCert.SignatureAlgorithm)
+
+	// ---- 公钥规格：从旧证书公钥推断（algo + size） ----
 	cfg.Key = inferKeySpec(oldCert)
 
+	// ---- Subject 各 RDN（formatSubject 支持的多值只取第一个） ----
 	if len(oldCert.Subject.Organization) > 0 {
 		cfg.Names.O = &oldCert.Subject.Organization[0]
 	}
@@ -208,12 +284,16 @@ func buildRenewConfig(cert *models.Certificate, oldCert *x509.Certificate, expir
 		cfg.Names.ST = &oldCert.Subject.Province[0]
 	}
 
+	// ---- KeyUsage（[]x509.KeyUsage → []string） ----
 	cfg.KeyUsage = keyUsageToStrings(oldCert.KeyUsage)
 
+	// ---- 末端证书专属扩展 ----
 	if !isCA {
 		cfg.ExtKeyUsage = extKeyUsageToStrings(oldCert.ExtKeyUsage)
-		cfg.AltNames.DNS = oldCert.DNSNames
-		cfg.AltNames.Email = oldCert.EmailAddresses
+
+		// SAN：拷贝而非引用，避免下游修改污染 oldCert
+		cfg.AltNames.DNS = append([]string(nil), oldCert.DNSNames...)
+		cfg.AltNames.Email = append([]string(nil), oldCert.EmailAddresses...)
 		for _, ip := range oldCert.IPAddresses {
 			cfg.AltNames.IP = append(cfg.AltNames.IP, ip.String())
 		}
@@ -222,6 +302,8 @@ func buildRenewConfig(cert *models.Certificate, oldCert *x509.Certificate, expir
 		}
 	}
 
+	// ---- CA 证书的 PathLen ----
+	// MaxPathLen < 0 表示未限制；>= 0 才需要还原（含 0）。
 	if isCA && oldCert.MaxPathLen >= 0 {
 		pl := oldCert.MaxPathLen
 		cfg.PathLen = &pl

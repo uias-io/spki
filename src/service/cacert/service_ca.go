@@ -48,6 +48,10 @@ func InitRootCA(dao *models.DB, cfg *CertConfig) (string, error) {
 	exp := cert.NotAfter.UnixMilli()
 	subject := formatSubject(cert.Subject)
 	state := StateValid
+	cfgJSON, err := marshalConfig(cfg)
+	if err != nil {
+		return "", ErrInternal(answer.EcodeError, "marshal config failed", err)
+	}
 
 	certRec := models.Certificate{
 		CertID:   certID,
@@ -57,6 +61,7 @@ func InitRootCA(dao *models.DB, cfg *CertConfig) (string, error) {
 		Pathlev:  PathLevCA,
 		Genre:    GenreRoot,
 		HasKey:   1,
+		IssueCfg: cfgJSON,
 	}
 	keyRec := &models.PrivateKey{
 		KeyID:       keyID,
@@ -65,6 +70,7 @@ func InitRootCA(dao *models.DB, cfg *CertConfig) (string, error) {
 		Fingerprint: &keyFP,
 		CreateTime:  now,
 	}
+
 	version := models.Version{
 		Revision:       &rev,
 		CertID:         &certID,
@@ -162,6 +168,10 @@ func IssueIntermediateSvc(dao *models.DB, parentID string, cfg *CertConfig) (str
 	exp := cert.NotAfter.UnixMilli()
 	subject := formatSubject(cert.Subject)
 	state := StateValid
+	cfgJSON, err := marshalConfig(cfg)
+	if err != nil {
+		return "", ErrInternal(answer.EcodeError, "marshal config failed", err)
+	}
 
 	certRec := models.Certificate{
 		CertID:   certID,
@@ -171,6 +181,7 @@ func IssueIntermediateSvc(dao *models.DB, parentID string, cfg *CertConfig) (str
 		Pathlev:  PathLevInter,
 		Genre:    GenreInter,
 		HasKey:   1,
+		IssueCfg: cfgJSON,
 	}
 	keyRec := &models.PrivateKey{
 		KeyID:       keyID,
@@ -179,6 +190,7 @@ func IssueIntermediateSvc(dao *models.DB, parentID string, cfg *CertConfig) (str
 		Fingerprint: &keyFP,
 		CreateTime:  now,
 	}
+
 	version := models.Version{
 		Revision:       &rev,
 		CertID:         &certID,

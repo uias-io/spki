@@ -115,6 +115,10 @@ func IssueEndEntitySvc(dao *models.DB, issuerID string, cfg *CertConfig) (string
 	if cfg.CSRPem == "" {
 		hasKey = 1
 	}
+	cfgJSON, err := marshalConfig(cfg)
+	if err != nil {
+		return "", ErrInternal(answer.EcodeError, "marshal config failed", err)
+	}
 
 	certRec := models.Certificate{
 		CertID:   certID,
@@ -125,6 +129,7 @@ func IssueEndEntitySvc(dao *models.DB, issuerID string, cfg *CertConfig) (string
 		Genre:    GenreLeaf,
 		HasKey:   hasKey,
 		CertReq:  strPtrIf(cfg.CSRPem),
+		IssueCfg: cfgJSON,
 	}
 
 	var keyRec *models.PrivateKey

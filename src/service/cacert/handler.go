@@ -29,7 +29,12 @@ func mustDao(c *app.RequestContext) (*models.DB, bool) {
 func writeErr(c *app.RequestContext, err error) {
 	var se *SvcError
 	if errors.As(err, &se) {
-		c.JSON(se.HttpCode, answer.ResBody(se.Ecode, se.Msg, ""))
+		msg := se.Msg
+		if se.Err != nil {
+			msg = msg + ": " + se.Err.Error()
+		}
+		hlog.Errorf("svc error [%s]: %s", se.Ecode, msg)
+		c.JSON(se.HttpCode, answer.ResBody(se.Ecode, msg, ""))
 		return
 	}
 	hlog.Error("unclassified svc error: ", err)
