@@ -63,6 +63,15 @@ func renewCert(dao *models.DB, certID string, expiry Expiry, isCA, selfSign bool
 	if oldVer == nil {
 		return 0, ErrNotFound(answer.EcodeVersion404, "version not found", nil)
 	}
+
+	// 2.1 已吊销禁止续签。
+	// 吊销按 certID 粒度置 R，latest version 为 R 即代表整个身份已吊销，
+	// 与 RevokeCertSvc 的幂等判断使用同一不变量。
+	// 只拦 StateRevoked；过期（StateExpired / V 且已过期）仍允许续签。
+	if oldVer.State != nil && *oldVer.State == models.StateRevoked {
+		return 0, ErrForbidden(answer.EcodeCertRevoked, "certificate is revoked, renew is not allowed", nil)
+	}
+
 	if oldVer.KeyID == nil {
 		return 0, ErrBadRequest(answer.EcodeCACannotSign, "old version has no key (CSR mode not supported)", nil)
 	}
