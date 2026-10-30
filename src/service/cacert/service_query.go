@@ -1,6 +1,7 @@
 package cacert
 
 import (
+	"encoding/json"
 	"spki/src/models"
 	"spki/src/pkg/answer"
 	"strings"
@@ -292,6 +293,49 @@ func ListCertsByGenres(dao *models.DB, offset, limit int, count *int64, genres [
 	return items, nil
 }
 
+// GetCertSvc 获取单条证书详情，返回结构与列表项 CertListItem 一致
+func GetCertSvc(dao *models.DB, certID string) (*CertListItem, error) {
+	cert, err := dao.GetCertificateByCertID(certID)
+	if err != nil {
+		return nil, ErrInternal(answer.EcodeError, "query cert failed", err)
+	}
+	if cert == nil {
+		return nil, ErrNotFound(answer.EcodeCertificate404, "certificate not found", nil)
+	}
+
+	item := CertListItem{
+		CertID:   cert.CertID,
+		Title:    cert.Title,
+		Subject:  cert.Subject,
+		ParentID: cert.ParentID,
+		Pathlev:  cert.Pathlev,
+		Genre:    cert.Genre,
+		HasKey:   cert.HasKey,
+	}
+
+	v, err := dao.GetLatestVersion(certID)
+	if err == nil && v != nil {
+		item.Revision = v.Revision
+		item.Serial = v.Serial
+		item.NotBefore = v.EffectiveTime
+		item.NotAfter = v.ExpirationTime
+		item.State = normalizeState(v.State, v.ExpirationTime)
+		if v.Cert != nil {
+			if xc, perr := parseCertPEM(*v.Cert); perr == nil {
+				spec := inferKeySpec(xc)
+				item.Key = &spec
+			}
+		}
+	}
+
+	item.Chain = strings.Join(
+		resolveCertChain(dao, certID, make(map[string][]string), make(map[string]bool)),
+		"/",
+	)
+
+	return &item, nil
+}
+
 // ListCertVersionsSvc 列出某证书的所有版本
 func ListCertVersionsSvc(dao *models.DB, certID string) ([]VersionItem, error) {
 	cert, err := dao.GetCertificateByCertID(certID)
@@ -337,4 +381,73 @@ type RootInfo struct {
 	NotBefore *int64   `json:"notBefore,omitempty"`
 	NotAfter  *int64   `json:"notAfter,omitempty"`
 	Chain     []string `json:"chain"`
+}
+
+// GetCertConfigSvc 读取现有证书的签发配置，作为"按旧配置新签发"的模板。
+//
+// 与续签（RenewCertSvc）的区别：
+//   - 本接口只读配置，不生成证书、不复用私钥、不产生新 revision
+//   - 不检查吊销状态：证书被吊销后依然可以读取其配置作为模板
+//   - 返回的配置不含 expiry / csrpem，由调用方重新指定
+//
+// 调用方拿到 cfg 后可修改并传给 IssueEndEntitySvc / IssueIntermediateSvc，
+// 新证书会获得全新的 certID、全新的私钥（除非走 CSR）。
+func GetCertConfigSvc(dao *models.DB, certID string) (*CertConfig, error) {
+	cert, err := dao.GetCertificateByCertID(certID)
+	if err != nil {
+		return nil, ErrInternal(answer.EcodeError, "query cert failed", err)
+	}
+	if cert == nil {
+		return nil, ErrNotFound(answer.EcodeCertificate404, "certificate not found", nil)
+	}
+
+	v, err := dao.GetLatestVersion(certID)
+	if err != nil {
+		return nil, ErrInternal(answer.EcodeError, "query version failed", err)
+	}
+	if v == nil {
+		return nil, ErrNotFound(answer.EcodeVersion404, "version not found", nil)
+	}
+	if v.Cert == nil {
+		return nil, ErrInternal(answer.EcodeError, "version has no cert pem", nil)
+	}
+
+	// 注意：这里故意不检查 v.State 是否为 R。
+	// 吊销只影响"能否续签"，不影响"读取配置作为模板"。
+
+	xc, err := parseCertPEM(*v.Cert)
+	if err != nil {
+		return nil, ErrInternal(answer.EcodeError, "parse cert failed", err)
+	}
+
+	isCA := cert.Genre == GenreRoot || cert.Genre == GenreInter
+
+	// 从证书实际内容还原（纯函数，不查库、不看吊销状态）
+	cfg := buildConfigFromCert(cert, xc, Expiry{}, isCA)
+
+	// 优先用持久化的 IssueCfg 补全（更完整），失败则退回证书还原结果。
+	// IssueCfg 也只是历史配置快照，与吊销状态无关。
+	if cert.IssueCfg != "" && cert.IssueCfg != "{}" && cert.IssueCfg != "null" {
+		var stored CertConfig
+		if err := json.Unmarshal([]byte(cert.IssueCfg), &stored); err == nil &&
+			stored.Names.CN != "" && stored.Key.Algo != "" {
+			// 用证书实际值校正关键字段，避免历史脏数据
+			stored.Title = cert.Title
+			stored.Names.CN = xc.Subject.CommonName
+			stored.Key = inferKeySpec(xc)
+			stored.SubjectKeyIdentifier = cfg.SubjectKeyIdentifier
+			stored.SignatureAlgorithm = cfg.SignatureAlgorithm
+			cfg = &stored
+		}
+	}
+
+	// 以下字段不该由"模板"决定，必须清空：
+	//   Expiry  —— 新签发的有效期由调用方指定
+	//   CSRPem  —— 新签发是否走 CSR 由调用方重新决定
+	//   Title   —— 可保留旧 title 作默认值（调用方可覆盖）
+	cfg.Expiry = Expiry{}
+	cfg.CSRPem = ""
+	cfg.Names.CN = xc.Subject.CommonName // 永远以证书实际 CN 为准
+
+	return cfg, nil
 }

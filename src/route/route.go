@@ -34,7 +34,7 @@ func AppRoute(h *server.Hertz) {
 	// OCSP
 	// 签发证书时写入 OCSP URL
 	// cfg.OCSPServer = []string{"http://pki.example.com/spki/ocsp"}
-	//TODO 需要取消鉴权
+	//TODO OCSP需要取消鉴权
 	h.POST("/spki/ocsp", apc("spki:cert:list"), cacert.OCSPResponder())
 	h.GET("/spki/ocsp", cacert.OCSPResponder())
 
@@ -46,6 +46,7 @@ func AppRoute(h *server.Hertz) {
 	// 证书操作
 	h.POST("/v1/spki/cert/endentity", apc("spki:cert:issue"), cacert.IssueEndEntity())        // 签发末端证书
 	h.GET("/v1/spki/cert/list", apc("spki:cert:list"), cacert.ListCert())                     // 列出证书，支持 ?genre=1&genre=2
+	h.GET("/v1/spki/cert/:id", apc("spki:cert:list"), cacert.GetCert())                       // 单条详情
 	h.POST("/v1/spki/cert/:id/renew", apc("spki:cert:renew"), cacert.RenewCert())             // 续签，只延长有效期
 	h.POST("/v1/spki/cert/:id/revoke", apc("spki:cert:revoke"), cacert.RevokeCert())          // 吊销
 	h.DELETE("/v1/spki/cert/:id", apc("spki:cert:delete"), cacert.DeleteCert())               // 删除，同时删私钥和所有版本
@@ -53,6 +54,7 @@ func AppRoute(h *server.Hertz) {
 	h.GET("/v1/spki/cert/:id/root", apc("spki:cert:root"), cacert.FindRootCA())               // 从任意证书向上找根 CA
 	h.GET("/v1/spki/cert/:id/versions", apc("spki:cert:versions"), cacert.ListCertVersions()) // 列出某证书所有版本
 	h.GET("/v1/spki/cert/:id/bundle", apc("spki:cert:bundle"), cacert.ExportCertBundle())     // 下载证书含私钥
+	h.GET("/v1/spki/cert/:id/issuecfg", apc("spki:cert:issuecfg"), cacert.GetCertConfig())    // 读取证书签发配置
 	h.GET("/v1/spki/crl", apc("spki:crl:download"), cacert.DownloadCRL())                     // 下载 CRL，参数 ?issuerId=xxx
 
 	h.NoRoute(r404())

@@ -227,14 +227,14 @@ func signatureAlgorithmToString(alg x509.SignatureAlgorithm) string {
 
 func buildRenewConfigFromCertificate(cert *models.Certificate, oldCert *x509.Certificate, expiry Expiry, isCA bool) (*CertConfig, error) {
 	if cert.IssueCfg == "" || cert.IssueCfg == "{}" || cert.IssueCfg == "null" {
-		return buildRenewConfig(cert, oldCert, expiry, isCA), nil
+		return buildConfigFromCert(cert, oldCert, expiry, isCA), nil
 	}
 	var cfg CertConfig
 	if err := json.Unmarshal([]byte(cert.IssueCfg), &cfg); err != nil {
-		return buildRenewConfig(cert, oldCert, expiry, isCA), nil
+		return buildConfigFromCert(cert, oldCert, expiry, isCA), nil
 	}
 	if cfg.Names.CN == "" || cfg.Key.Algo == "" {
-		return buildRenewConfig(cert, oldCert, expiry, isCA), nil
+		return buildConfigFromCert(cert, oldCert, expiry, isCA), nil
 	}
 	cfg.Expiry = expiry
 	cfg.Title = cert.Title
@@ -243,8 +243,15 @@ func buildRenewConfigFromCertificate(cert *models.Certificate, oldCert *x509.Cer
 	return &cfg, nil
 }
 
-// buildRenewConfig 从旧证书还原续期配置
-func buildRenewConfig(cert *models.Certificate, oldCert *x509.Certificate, expiry Expiry, isCA bool) *CertConfig {
+// buildConfigFromCert 从旧证书还原签发配置（纯函数，不查库、不看吊销状态）
+//
+// 供两处共用：
+//   - 续签（RenewCertSvc）：expiry 由调用方给出，后续会复用旧私钥
+//   - 读取配置（GetCertConfigSvc）：expiry 传零值，只作为"新签发模板"
+//
+// 还原内容：Subject 各 RDN、KeyUsage、ExtKeyUsage（末端）、SAN（末端）、
+// AIA / CRL DP、PathLen（CA）、签名算法、SKI 算法、公钥规格。
+func buildConfigFromCert(cert *models.Certificate, oldCert *x509.Certificate, expiry Expiry, isCA bool) *CertConfig {
 	cfg := &CertConfig{
 		Title:  cert.Title,
 		Expiry: expiry,
@@ -354,7 +361,7 @@ func keyUsageToStrings(ku x509.KeyUsage) []string {
 		out = append(out, "keyAgreement")
 	}
 	if ku&x509.KeyUsageCertSign != 0 {
-		out = append(out, "keyCertSign") // ← 修复：之前误写成 certSign
+		out = append(out, "keyCertSign")
 	}
 	if ku&x509.KeyUsageCRLSign != 0 {
 		out = append(out, "crlSign")

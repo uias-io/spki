@@ -369,6 +369,31 @@ func ListCert() app.HandlerFunc {
 	}
 }
 
+// GetCert GET /v1/spki/cert/:id
+// 返回单条证书详情，结构复用列表项 CertListItem
+func GetCert() app.HandlerFunc {
+	return func(ctx context.Context, c *app.RequestContext) {
+		certID := c.Param("id")
+		if certID == "" {
+			c.JSON(http.StatusBadRequest, answer.ResBody(answer.EcodeInvalidRequestParamsError, "id is required", ""))
+			return
+		}
+
+		dao, ok := mustDao(c)
+		if !ok {
+			return
+		}
+
+		item, err := GetCertSvc(dao, certID)
+		if err != nil {
+			writeErr(c, err)
+			return
+		}
+
+		c.JSON(http.StatusOK, answer.ResBody(answer.EcodeOK, "", item))
+	}
+}
+
 // ListCertVersions GET /spki/cert/:id/versions
 func ListCertVersions() app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
@@ -491,5 +516,26 @@ func OCSPResponder() app.HandlerFunc {
 		}
 
 		c.Data(http.StatusOK, "application/ocsp-response", respDER)
+	}
+}
+
+// GetCertConfig GET /v1/spki/cert/:id/config
+// 读取现有证书的签发配置
+func GetCertConfig() app.HandlerFunc {
+	return func(ctx context.Context, c *app.RequestContext) {
+		certID := c.Param("id")
+		dao, ok := mustDao(c)
+		if !ok {
+			return
+		}
+		cfg, err := GetCertConfigSvc(dao, certID)
+		if err != nil {
+			writeErr(c, err)
+			return
+		}
+
+		c.JSON(http.StatusOK, answer.ResBody(answer.EcodeOK, "", map[string]any{
+			"issuecfg": cfg,
+		}))
 	}
 }

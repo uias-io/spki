@@ -109,6 +109,15 @@
   },
   {
     "actionInfo": {
+      "name": "spki:cert:issuecfg",
+      "group": "ReadOnly",
+      "title": "读取证书签发配置",
+      "description": "读取证书签发配置",
+      "status": "enabled"
+    }
+  },
+  {
+    "actionInfo": {
       "name": "spki:crl:download",
       "group": "ReadOnly",
       "title": "下载CRL",
